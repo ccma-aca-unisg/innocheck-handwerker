@@ -51,31 +51,80 @@ betriebsergebnis = deckungsbeitrag - summe_fk
 
 # === Ergebnisanzeige ===
 st.header("Ergebnis")
-st.write(f"**Umsatz:** {umsatz:,.2f} CHF")
-st.write(f"**Variable Kosten:** {summe_vk:,.2f} CHF")
-st.write(f"**Deckungsbeitrag:** {deckungsbeitrag:,.2f} CHF")
-st.write(f"**Fixkosten:** {summe_fk:,.2f} CHF")
-st.write(f"**Betriebsergebnis:** {betriebsergebnis:,.2f} CHF")
+st.write(f"**Umsatz:** {umsatz:,.2f} CHF".replace(",", "'"))
+st.write(f"**Variable Kosten:** {summe_vk:,.2f} CHF".replace(",", "'"))
+st.write(f"**Deckungsbeitrag:** {deckungsbeitrag:,.2f} CHF".replace(",", "'"))
+st.write(f"**Fixkosten:** {summe_fk:,.2f} CHF".replace(",", "'"))
+st.write(f"**Betriebsergebnis:** {betriebsergebnis:,.2f} CHF".replace(",", "'"))
 
 # === Wasserfall-Diagramm ===
 st.subheader("Wasserfalldiagramm (Deckungsbeitragsrechnung)")
 
-data = {
-    "Kategorie": ["Umsatz", "Variable Kosten", "Deckungsbeitrag", "Fixkosten", "Betriebsergebnis"],
-    "Betrag": [umsatz, -summe_vk, deckungsbeitrag, -summe_fk, betriebsergebnis]
+# Step-wise calculation
+deckungsbeitrag = umsatz - summe_vk
+betriebsergebnis = deckungsbeitrag - summe_fk
+
+# Prepare waterfall steps with defined logic
+steps = [
+    {"Kategorie": "Umsatz", "Wert": umsatz, "bottom": 0},
+    {"Kategorie": "Variable Kosten", "Wert": -summe_vk},  # relative to previous
+    {"Kategorie": "Deckungsbeitrag", "Wert": deckungsbeitrag},  # absolute value
+    {"Kategorie": "Fixkosten", "Wert": -summe_fk},  # relative to previous
+    {"Kategorie": "Betriebsergebnis", "Wert": betriebsergebnis, "bottom": 0}  # always start from 0
+]
+
+# Compute waterfall positions
+bars = []
+running_total = 0
+
+for step in steps:
+    value = step["Wert"]
+    label = step["Kategorie"]
+    
+    if "bottom" in step:
+        bottom = step["bottom"]  # force it (like 0 for Umsatz and Ergebnis)
+    else:
+        bottom = running_total if value < 0 else 0  # negative values stacked down
+    
+    top = bottom + value
+    bars.append({
+        "Kategorie": label,
+        "Betrag": value,
+        "Start": bottom,
+        "Ende": top
+    })
+
+    # update total only for flow values, not for "absolute" result
+    if label not in ["Deckungsbeitrag", "Betriebsergebnis"]:
+        running_total += value
+
+# Create DataFrame
+df = pd.DataFrame(bars)
+
+# Set colors
+colors = {
+    "Umsatz": "#3498db",
+    "Variable Kosten": "#e74c3c",
+    "Deckungsbeitrag": "#2ecc71",
+    "Fixkosten": "#f39c12",
+    "Betriebsergebnis": "#27ae60" if betriebsergebnis >= 0 else "#c0392b"
 }
 
-df = pd.DataFrame(data)
-df["Start"] = df["Betrag"].cumsum().shift(fill_value=0)
-df["Ende"] = df["Start"] + df["Betrag"]
-
+# Plot
 fig, ax = plt.subplots(figsize=(10, 5))
-colors = ["#3498db", "#e74c3c", "#2ecc71", "#f39c12", "#27ae60" if betriebsergebnis >= 0 else "#c0392b"]
 
 for i, row in df.iterrows():
-    ax.bar(row["Kategorie"], row["Betrag"], bottom=row["Start"], color=colors[i])
-    ax.text(i, row["Ende"] + (0.01 * umsatz), f"{row['Betrag']:,.0f}", ha="center", va="bottom")
+    bar_color = colors[row["Kategorie"]]
+    height = row["Ende"] - row["Start"]
+    ax.bar(row["Kategorie"], height, bottom=row["Start"], color=bar_color)
+    
+    # Place label correctly
+    offset = umsatz * 0.01
+    va = "bottom" if height >= 0 else "top"
+    ax.text(i, row["Ende"] + (offset if height >= 0 else -offset),
+            f"{row['Betrag']:,.0f}".replace(",", "'"), ha="center", va=va)
 
+# Axes
 ax.axhline(0, color='black', linewidth=0.8)
 ax.set_ylabel("CHF")
 ax.set_title("Deckungsbeitragsrechnung")
